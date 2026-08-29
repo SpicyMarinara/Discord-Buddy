@@ -241,7 +241,6 @@ If you want to discuss commercial use or something, hit me up first. That would 
 ### Contact
 
 Discord: marinara_spaghetti
-E-mail: mgrabower97@gmail.com
 
 ### Credits
 
