@@ -2073,6 +2073,26 @@ def update_bot_persona_name(guild_id: int = None, user_id: int = None, is_dm: bo
     global bot_persona_name
     bot_persona_name = get_bot_persona_name(guild_id, user_id, is_dm)
 
+guild_emoji_cache: Dict[int, Dict[str, str]] = {}
+
+
+def get_guild_emoji_lookup(guild: discord.Guild) -> Dict[str, str]:
+    """Build a lookup map for quick guild emoji name resolution."""
+    if not guild:
+        return {}
+
+    cached_lookup = guild_emoji_cache.get(guild.id)
+    if cached_lookup is not None and len(cached_lookup) == len(guild.emojis):
+        return cached_lookup
+
+    lookup = {}
+    for emoji in guild.emojis:
+        lookup[emoji.name.lower()] = f"<{'a' if emoji.animated else ''}:{emoji.name}:{emoji.id}>"
+
+    guild_emoji_cache[guild.id] = lookup
+    return lookup
+
+
 def get_guild_emojis(guild: discord.Guild) -> str:
     """Get formatted list of guild emojis for system prompt with simple :name: format"""
     if not guild:
@@ -2102,7 +2122,7 @@ def get_guild_emojis(guild: discord.Guild) -> str:
             
             if static_emojis:
                 selected_emojis.extend(random.sample(static_emojis, static_count))
-            if animated_emojis:
+            if animated_emojis: 
                 selected_emojis.extend(random.sample(animated_emojis, animated_count))
             
             # If we still need more emojis, fill from remaining
@@ -2231,32 +2251,22 @@ async def process_and_add_reactions(bot_response: str, user_message: discord.Mes
 def convert_emoji_for_reaction(emoji_text: str, guild: discord.Guild = None) -> str:
     """Convert emoji text to proper format for reactions with improved matching"""
     
-    # If it's already in proper Discord format, validate it exists in THIS guild
     if emoji_text.startswith('<:') or emoji_text.startswith('<a:'):
         if guild:
-            # Extract emoji ID from the format <:name:id> or <a:name:id>
             emoji_id_match = re.search(r':(\d+)>', emoji_text)
             if emoji_id_match:
                 emoji_id = int(emoji_id_match.group(1))
-                # Check if this emoji exists in THIS guild
-                for emoji in guild.emojis:
-                    if emoji.id == emoji_id:
-                        return emoji_text  # Valid emoji from this guild
-                # Emoji doesn't exist in this guild - remove it
+                if any(emoji.id == emoji_id for emoji in guild.emojis):
+                    return emoji_text
                 return None
-        # No guild to validate against - remove it
         return None
     
-    # If it's in :name: format, try to convert to proper format
     if emoji_text.startswith(':') and emoji_text.endswith(':') and guild:
         emoji_name = emoji_text.strip(':')
-        
-        # Try to find this emoji in the current guild
-        for emoji in guild.emojis:
-            if emoji.name.lower() == emoji_name.lower():
-                return f"<{'a' if emoji.animated else ''}:{emoji.name}:{emoji.id}>"
-        
-        # If no custom emoji found, check if it's a common Unicode emoji
+        mapped_emoji = get_guild_emoji_lookup(guild).get(emoji_name.lower())
+        if mapped_emoji:
+            return mapped_emoji
+
         unicode_emoji_map = {
             'smile': '😊', 'heart': '❤️', 'thumbsup': '👍', 'thumbsdown': '👎',
             'fire': '🔥', 'star': '⭐', 'eyes': '👀', 'thinking': '🤔',
@@ -2265,14 +2275,11 @@ def convert_emoji_for_reaction(emoji_text: str, guild: discord.Guild = None) -> 
             'mad': '😡', 'love': '💕'
         }
         
-        emoji_name_lower = emoji_name.lower()
-        if emoji_name_lower in unicode_emoji_map:
-            return unicode_emoji_map[emoji_name_lower]
+        if emoji_name.lower() in unicode_emoji_map:
+            return unicode_emoji_map[emoji_name.lower()]
         
-        # Unknown emoji - remove it
         return None
     
-    # For Unicode emojis, return as-is
     return emoji_text
 
 def estimate_message_size(messages: List[Dict], system_prompt: str) -> int:
